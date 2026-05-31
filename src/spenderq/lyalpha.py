@@ -5,7 +5,6 @@ methods for identifying LyA absorption
 
 '''
 import numpy as np 
-from numba import jit 
 from . import util as U
 
 
@@ -26,18 +25,22 @@ def identify_absorp(wobs, fobs, iobs, zobs, wmod, fmod, sigma_lya=1.5, sigma_lyb
     else:
         raise NotImplementedError
     
+    iobs_sigma = np.full_like(iobs_coarse, np.inf)
+    valid_ivar = iobs_coarse > 0
+    iobs_sigma[valid_ivar] = iobs_coarse[valid_ivar]**-0.5
+
     # above LyA 
     is_absorb_coarse = np.zeros(len(fobs_coarse)).astype(bool)
     above_lya = (w_coarse[:-1] > w_lya) 
-    is_absorb_coarse[above_lya] = (fmod_coarse[above_lya] - fobs_coarse[above_lya] > 3 * iobs_coarse[above_lya]**-0.5)
+    is_absorb_coarse[above_lya] = (fmod_coarse[above_lya] - fobs_coarse[above_lya] > 3 * iobs_sigma[above_lya])
     
     # LyA range
     lya_range = (w_coarse[:-1] > w_lyb) & (w_coarse[1:] < w_lya)
-    is_absorb_coarse[lya_range] = (fmod_coarse[lya_range] - fobs_coarse[lya_range] > sigma_lya * iobs_coarse[lya_range]**-0.5)
+    is_absorb_coarse[lya_range] = (fmod_coarse[lya_range] - fobs_coarse[lya_range] > sigma_lya * iobs_sigma[lya_range])
 
     # LyB range 
     lyb_range = (w_coarse[:-1] < w_lyb)
-    is_absorb_coarse[lyb_range] = (fmod_coarse[lyb_range] - fobs_coarse[lyb_range] > sigma_lyb * iobs_coarse[lyb_range]**-0.5)
+    is_absorb_coarse[lyb_range] = (fmod_coarse[lyb_range] - fobs_coarse[lyb_range] > sigma_lyb * iobs_sigma[lyb_range])
 
     i_coarse = np.digitize(wobs, w_coarse, right=False) - 1
     
@@ -74,7 +77,13 @@ def rebin(wobs, fobs, iobs, zobs, wmod, fmod, method='uniform', wmax=None, verbo
     
     # reconstructed flux coarse binned
     fmod_coarse = np.zeros(len(w_coarse)-1)
-    fmod_coarse[1:-1] = U.trapz_rebin(wmod, fmod, edges=w_coarse[1:-1])
+    try:
+        fmod_coarse[1:-1] = U.trapz_rebin(wmod, fmod, edges=w_coarse[1:-1])
+    except ValueError:
+        # High-redshift spectra can put the observed grid slightly outside the
+        # reconstruction range. Ignore those edge bins for absorption clipping.
+        wmid = 0.5 * (w_coarse[:-1] + w_coarse[1:])
+        fmod_coarse = np.interp(wmid, wmod, fmod, left=np.nan, right=np.nan)
     
     wlim = (w_coarse[0] <= wmod) & (wmod < w_coarse[1])
     fmod_coarse[-1] = np.sum(np.diff(wmod)[0] * fmod[wlim])/(w_coarse[1] - w_coarse[0])
@@ -103,7 +112,9 @@ def wrebin_uniform(wobs, fobs, iobs, zobs, wmax=None):
     # scale resolution by SNR of the spectra below LyA
     # the scaling is set so that at SNR = 1, each spectral element is 8A and the minimum 
     # bin width is 4A. 
-    dw = np.clip(8.0 / np.median(snr[wobs < wmax]), 4.0, 16.)
+    valid_snr = np.isfinite(snr) & (snr > 0) & (wobs < wmax)
+    median_snr = np.median(snr[valid_snr]) if np.any(valid_snr) else 0.0
+    dw = 16.0 if median_snr <= 0 else np.clip(8.0 / median_snr, 4.0, 16.)
 
     # coarse binning
     Nbin = int(((wobs[-1] - wobs[0]) + 0.8)/dw)

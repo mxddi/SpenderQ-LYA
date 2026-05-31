@@ -1,7 +1,15 @@
 import os
-import numba
 import numpy as np
-import scipy.sparse
+
+try:
+    import numba
+except ModuleNotFoundError:
+    class _NumbaFallback:
+        @staticmethod
+        def jit(func):
+            return func
+
+    numba = _NumbaFallback()
 
 
 class london_picca(object): 
