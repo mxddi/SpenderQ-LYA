@@ -10,21 +10,19 @@ def txt_to_fits_restframe(filename):
     Sets Z=0 in header to prevent Spender from re-shifting.
     """
 
-    # 1. Parse metadata from filename
     clean_name = filename.replace("-dered.dr16", "").replace(".txt", "")
     parts = clean_name.split("-")
     plate, mjd, fiber = parts[0], parts[1], parts[2]
     
-    # 2. Load spectral data
     data = np.loadtxt(os.path.join(specdirec, filename))
     wave, flux, err = data[:, 0], data[:, 1], data[:, 2]
     
-    # 3. Calculate Inverse Variance (ivar)
+    # Calculate inverse variance (ivar)
     ivar = np.zeros_like(err)
     valid_mask = (err > 0) & (~np.isnan(err))
     ivar[valid_mask] = 1.0 / (err[valid_mask]**2)
 
-    # 4. Normalization (Directly at 1450A since it's rest-frame)
+    # TODO: Remove if normalizd already. Normalization (Directly at 1450A since it's rest-frame)
     mask_1450 = (wave > 1445) & (wave < 1455)
     if np.any(mask_1450):
         norm_factor = np.median(flux[mask_1450])
@@ -34,9 +32,9 @@ def txt_to_fits_restframe(filename):
     normalized_flux = flux / norm_factor
     normalized_ivar = ivar * (norm_factor**2)
     
-    # 5. Create FITS structure
+    # Create FITS
     primary_hdu = fits.PrimaryHDU()
-    # SET TO 0: SpenderQ shifts by 1/(1+z). If already rest-frame, z must be 0.
+    # SET TO 0. SpenderQ shifts by 1/(1+z). If already in restframe, z must be 0.
     primary_hdu.header['Z'] = 0.0  
     
     cols = fits.ColDefs([
@@ -48,7 +46,7 @@ def txt_to_fits_restframe(filename):
     table_hdu = fits.BinTableHDU.from_columns(cols)
     table_hdu.name = 'COADD'
     
-    # 6. Save
+    # Save FITS
     out_fits_name = f"{specdirec}spec-{plate}-{mjd}-{fiber}.fits"
     hdul = fits.HDUList([primary_hdu, table_hdu])
     hdul.writeto(out_fits_name, overwrite=True)
@@ -73,7 +71,7 @@ with fits.open(fits_file) as hdul:
 
 import matplotlib.pyplot as plt
 
-# Function to check the FITS file is correctly converted by plotting the spectrum
+# Check the file is correctly converted by plotting
 def check_fits_plot(fits_path):
     with fits.open(fits_path) as hdul:
         data = hdul['COADD'].data
@@ -89,5 +87,5 @@ def check_fits_plot(fits_path):
         plt.legend()
         plt.show()
 
-# Run for one of your new files
+# Run plot check for a file
 check_fits_plot(f"{specdirec}spec-6138-57328-0746.fits")
