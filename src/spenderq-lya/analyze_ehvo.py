@@ -1,13 +1,11 @@
 """
-Created on Wed May 8 10:11:33 2026
-
 This program creates ML-reconstructed unabsorbed continuua for SDSS quasar spectra 
 using a modified version of SpenderQ (located in SpenderQ.py). It also creates 
 ratios and difference plots for any two spectra.
 
 @author: Madaly
 """
-
+ 
 import csv
 from pathlib import Path
 import sys
@@ -49,7 +47,7 @@ CONTINUUM_RATIO_WAVE_LO = 3500.0
 CONTINUUM_RATIO_WAVE_HI = 6000.0
 
 
-def _get_column(data, *names):
+def get_column(data, *names):
     columns = {name.lower(): name for name in data.names}
     for name in names:
         if name.lower() in columns:
@@ -58,7 +56,7 @@ def _get_column(data, *names):
 
 
 def load_sdss_like_spectrum(path, z_qso):
-    """Load an SDSS-style spectrum and return observed wavelength, flux, ivar."""
+    """Load an SDSS spectrum and return observed wavelength, flux, ivar."""
     with fits.open(path) as hdul:
         hdu = None
         for candidate in ("COADD", 1):
@@ -73,7 +71,7 @@ def load_sdss_like_spectrum(path, z_qso):
         if hdu is None:
             raise ValueError(f"No table HDU with spectral columns found in {path}")
 
-        loglam = _get_column(hdu, "loglam")
+        loglam = get_column(hdu, "loglam")
         wave = 10.0**loglam if loglam is not None else _get_column(
             hdu, "wave", "wavelength", "lambda"
         )
@@ -98,9 +96,9 @@ def load_sdss_like_spectrum(path, z_qso):
 
 
 def normalize_spectrum(wave_obs, flux, ivar, z_qso):
-    """Normalize near a relatively clean UV continuum window."""
+    """Normalize near a clean continuum window."""
     wave_rest = wave_obs / (1.0 + z_qso)
-    windows = [(1445.0, 1455.0), (1700.0, 1705.0), (1275.0, 1290.0)]
+    windows = [(1445.0, 1455.0), (1700.0, 1705.0)]
 
     norm = np.nan
     for lo, hi in windows:
@@ -150,7 +148,7 @@ def to_rest_frame(wave_obs, flux, ivar, z_qso):
 def rescale_continuum_to_flux(wave_obs, flux, continuum, ivar, z_qso):
     """Rescale continuum so its median matches the observed flux at the normalization window.
 
-    This removes the small offset between SpenderQ's normalization and the SDSS normalization, 
+    This removes the small shift between SpenderQ's normalization and the SDSS normalization, 
     setting the continuum-normalized ratio to ~1 at the normalization window
     (1445-1455 Å restframe).
     """
@@ -206,14 +204,14 @@ def run_spenderq(wave_obs, flux, ivar, z_qso):
 
 
 def plot_continuum_over_spectrum_restframe(path, wave_obs, flux, continuum, ivar, z_qso):
-    """Plot continuum/flux in rest frame — ratio > 1 indicates absorption in the data."""
+    """Plot continuum/flux in rest frame. ratio > 1 indicates absorption."""
     wave_rest, flux_rest, _ = to_rest_frame(wave_obs, flux, ivar, z_qso)
 
     ratio = np.divide(
         flux_rest,
         continuum,
         out=np.full_like(continuum, np.nan, dtype=float),
-        where=np.isfinite(continuum) & (continuum != 0) & np.isfinite(flux_rest) & (ivar > 0),
+        where=np.isfinite(continuum) & (continuum != 0) & np.isfinite(flux_rest) & (ivar > 0), # Skip points with infinite values or no ivar
     )
 
     fig, ax = plt.subplots(figsize=(12, 4), constrained_layout=True)
@@ -243,14 +241,12 @@ def plot_continuum_over_spectrum_restframe(path, wave_obs, flux, continuum, ivar
     return outpath
 
 
-def _mjd_from_path(path):
-    """Extract the 5-digit MJD from a filename like spec-PLATE-MJD-FIBER.fits."""
+def get_mjd(path):
+    """Get the MJD from a filename like spec-PLATE-MJD-FIBER.fits."""
     parts = Path(path).stem.split("-")
     for part in parts:
         if len(part) == 5 and part.isdigit():
             return part
-    raise ValueError(f"Could not find 5-digit MJD in filename: {Path(path).name}")
-
 
 def save_cont_norm_ratio_txt(path_a, path_b, wave_obs, cont_norm_ratio_a, cont_norm_ratio_b, z_qso):
     """Save (flux/cont_A)/(flux/cont_B) and the reverse as rest-frame text files.
@@ -258,8 +254,8 @@ def save_cont_norm_ratio_txt(path_a, path_b, wave_obs, cont_norm_ratio_a, cont_n
     Files are named <MJD_A>_over_<MJD_B>recon.txt and the reverse,
     saved to RECON_NORM_RATIOS_DIR with columns: rest_wavelength, ratio, err.
     """
-    mjd_a = _mjd_from_path(path_a)
-    mjd_b = _mjd_from_path(path_b)
+    mjd_a = get_mjd(path_a)
+    mjd_b = get_mjd(path_b)
 
     ratio_ab = np.divide(
         cont_norm_ratio_a,
@@ -294,8 +290,8 @@ def plot_cont_norm_ratio_observed(path_a, path_b, wave_obs, cont_norm_ratio_a, c
     """Plot (flux1/cont1) / (flux2/cont2) and the reverse in observed wavelength."""
     label_a = path_a.stem
     label_b = path_b.stem
-    mjd_a = _mjd_from_path(path_a)
-    mjd_b = _mjd_from_path(path_b)
+    mjd_a = get_mjd(path_a)
+    mjd_b = get_mjd(path_b)
 
     ratio_ab = np.divide(
         cont_norm_ratio_a,
@@ -353,8 +349,8 @@ def plot_cont_norm_ratio_difference_observed(path_a, path_b, wave_obs, cont_norm
     """Plot (flux1/cont1) - (flux2/cont2) and the reverse in observed wavelength (3800-6000 Å)."""
     label_a = path_a.stem
     label_b = path_b.stem
-    mjd_a = _mjd_from_path(path_a)
-    mjd_b = _mjd_from_path(path_b)
+    mjd_a = get_mjd(path_a)
+    mjd_b = get_mjd(path_b)
 
     diff_ab = cont_norm_ratio_a - cont_norm_ratio_b
     diff_ba = cont_norm_ratio_b - cont_norm_ratio_a
@@ -433,23 +429,7 @@ def plot_analysis(path, wave_obs, flux, continuum, weight, weight_clipped, z_qso
     return outpath, int(np.count_nonzero(lya_removed))
 
 
-#TODO: Remove if not needed.
-'''def save_reconstruction_txt(path, wave_obs, continuum, ivar):
-    """Write (wavelength, continuum, error) to <stem>norm.dr16 beside the FITS file."""
-    err = np.full_like(continuum, np.nan, dtype=float)
-    good = np.isfinite(ivar) & (ivar > 0)
-    err[good] = np.sqrt(1.0 / ivar[good])
-    outpath = path.parent / f"{path.stem}norm.dr16"
-    valid = np.isfinite(wave_obs) & np.isfinite(continuum)
-    np.savetxt(
-        outpath,
-        np.column_stack([wave_obs[valid], continuum[valid], err[valid]]),
-        fmt="%.6f",
-    )
-    return outpath'''
-
-
-def _quasar_dir_name(quasar_name):
+def quasar_dir(quasar_name):
     """Return the directory stem: everything before the '+' in the quasar name."""
     idx = quasar_name.find("+")
     return quasar_name[:idx] if idx != -1 else quasar_name
@@ -462,21 +442,6 @@ def analyze_file(path, z_qso):
     recon_rest, continuum_grid, cont_norm_ratio, weight_clipped, wave_rest = run_spenderq(
         wave_grid, flux_grid, ivar_grid, z_qso
     )
-    continuum_obs = rebin_reconstruction_to_observed(
-        wave_rest, recon_rest, wave_obs, z_qso
-    )
-
-    #TODO: Remove if not needed. Save the reconstruction in SDSS text file format for running through absorption module
-    '''txt_path = save_reconstruction_txt(path, wave_obs, continuum_obs, ivar)
-    outpath, n_lya_removed = plot_analysis(
-        path,
-        wave_grid,
-        flux_grid,
-        continuum_grid,
-        ivar_grid,
-        weight_clipped,
-        z_qso,
-    )'''
 
     ratio_path = plot_continuum_over_spectrum_restframe(
         path, wave_grid, flux_grid, continuum_grid, ivar_grid, z_qso
@@ -492,7 +457,7 @@ def analyze_file(path, z_qso):
     }
 
 
-def _read_csv(csv_path):
+def read_csv(csv_path):
     """Return list of dicts with keys: name, obs1, obs2, redshift."""
     rows = []
     with open(csv_path, newline="", encoding="utf-8") as fh:
@@ -510,7 +475,7 @@ def _run_quasar(quasar_name, obs1_filename, obs2_filename, z_qso, CASE_DIR):
     """Run the full SpenderQ analysis for one quasar pair and save all outputs."""
     global OUTPUT_DIR, RECON_NORM_RATIOS_DIR
 
-    qso_prefix = _quasar_dir_name(quasar_name)
+    qso_prefix = quasar_dir(quasar_name)
     qso_dir = CASE_DIR / qso_prefix
     OUTPUT_DIR = qso_dir / "spenderq_analysis"
     RECON_NORM_RATIOS_DIR = CASE_DIR / "recon_norm_ratios"
@@ -625,7 +590,7 @@ def save_summary_csv(case_dir, entries):
 if __name__ == "__main__":
     torch.set_grad_enabled(False)
 
-    quasars = _read_csv(CSV_PATH)
+    quasars = read_csv(CSV_PATH)
     print(f"Found {len(quasars)} quasar(s) in {CSV_PATH}")
 
     summary_entries = []
